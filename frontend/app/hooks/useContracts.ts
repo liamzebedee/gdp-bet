@@ -53,7 +53,7 @@ export function useContractAddresses() {
   
   return {
     gdpMarket: deployment.contracts.GDPMarket.address as `0x${string}`,
-    mockUSDC: deployment.contracts.MockUSDC?.address as `0x${string}` || deployment.contracts.USDC?.address as `0x${string}`,
+    mockUSDC: (deployment.contracts as any).MockUSDC?.address as `0x${string}` || (deployment.contracts as any).USDC?.address as `0x${string}`,
     oracle: deployment.contracts.USGDPOracle.address as `0x${string}`,
     longToken: deployment.contracts.LongToken.address as `0x${string}`,
     shortToken: deployment.contracts.ShortToken.address as `0x${string}`,
@@ -66,7 +66,7 @@ export function useContractAbis() {
   
   return {
     gdpMarket: deployment.contracts.GDPMarket.abi,
-    mockUSDC: deployment.contracts.MockUSDC?.abi || deployment.contracts.USDC?.abi,
+    mockUSDC: (deployment.contracts as any).MockUSDC?.abi || (deployment.contracts as any).USDC?.abi,
     oracle: deployment.contracts.USGDPOracle.abi,
     longToken: deployment.contracts.LongToken.abi,
     shortToken: deployment.contracts.ShortToken.abi,
@@ -227,8 +227,8 @@ export function useOracleState() {
   });
   
   return {
-    gPpm: oracleData?.[0] as bigint | undefined,
-    finalized: oracleData?.[1] as boolean | undefined,
+    gPpm: (oracleData as any)?.[0] as bigint | undefined,
+    finalized: (oracleData as any)?.[1] as boolean | undefined,
   };
 }
 

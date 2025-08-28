@@ -520,7 +520,7 @@ export default function Home() {
             <div className="flex justify-between">
               <span>GDP Change (g):</span>
               <span className="font-semibold">
-                {oracleState.gPpm && oracleState.gPpm !== 0n
+                {oracleState.gPpm && oracleState.gPpm !== BigInt(0)
                   ? `${(Number(oracleState.gPpm) / 10000).toFixed(2)}%`
                   : '—'
                 }
