@@ -14,6 +14,9 @@ enum Phase {
   Settled = 3
 }
 
+// Constants
+const BASELINE_GDP = 3.3; // Previous Q2 2025 GDP in percent
+
 export default function Trade() {
   const { address } = useAccount();
   const chainId = useChainId();
@@ -122,7 +125,10 @@ export default function Trade() {
     const hours = Math.floor((timeLeft % 86400) / 3600);
     const minutes = Math.floor((timeLeft % 3600) / 60);
     
-    return `${days}d ${hours}h ${minutes}m`;
+    // Show only the largest unit of time
+    if (days > 0) return `${days}d`;
+    if (hours > 0) return `${hours}h`;
+    return `${minutes}m`;
   };
 
   const calculateMintFee = () => {
@@ -158,11 +164,37 @@ export default function Trade() {
     return '0';
   };
 
+  const calculatePotentialReturn = (gdpChange: number, isLong: boolean) => {
+    if (!marketState.kPpm || !mintAmount) return { pct: 0, dollar: 0 };
+    
+    const k = Number(marketState.kPpm) / 1000000;
+    const delta = gdpChange - BASELINE_GDP;
+    const deltaDecimal = delta / 100; // Convert to decimal
+    
+    let shareLong = 0.5 + (0.5 * k * deltaDecimal);
+    shareLong = Math.max(0, Math.min(1, shareLong)); // Clamp between 0 and 1
+    
+    const shareShort = 1 - shareLong;
+    const share = isLong ? shareLong : shareShort;
+    
+    // Calculate returns
+    const returnMultiplier = share * 2; // How much you get back per dollar invested
+    const investmentAmount = parseFloat(mintAmount) || 0;
+    const returnAmount = investmentAmount * returnMultiplier;
+    const profit = returnAmount - investmentAmount;
+    const returnPct = (returnMultiplier - 1) * 100;
+    
+    return {
+      pct: returnPct,
+      dollar: profit
+    };
+  };
+
   const calculateSimulatorSplit = () => {
-    if (!simulatorG) return { longShare: '50.00', shortShare: '50.00' };
+    if (!simulatorG || !marketState.kPpm) return { longShare: '50.00', shortShare: '50.00' };
     
     const g = parseFloat(simulatorG) / 100; // Convert percentage to decimal
-    const k = 10; // Leverage from deployment
+    const k = Number(marketState.kPpm) / 1000000; // Use contract leverage
     let shareLong = 0.5 + (0.5 * k * g);
     
     if (shareLong > 1) shareLong = 1;
@@ -279,6 +311,40 @@ export default function Trade() {
     return <div className="min-h-screen bg-gray-50 font-mono flex items-center justify-center">Loading...</div>;
   }
 
+  // Show coming soon for mainnet
+  if (chainId === 1) {
+    return (
+      <div className="min-h-screen bg-gray-50 font-mono">
+        {/* Top Bar */}
+        <div className="bg-white border-b border-gray-200 px-4 py-3">
+          <div className="max-w-6xl mx-auto flex items-center justify-between">
+            <div className="flex items-center gap-6">
+              <Link href="/" className="text-xl font-bold hover:text-blue-600 transition-colors flex items-center gap-2">
+                🇺🇸 USGDP.Q3.2025
+              </Link>
+            </div>
+            <div className="flex items-center gap-4">
+              <ConnectButton />
+            </div>
+          </div>
+        </div>
+
+        {/* Coming Soon Message */}
+        <div className="flex items-center justify-center min-h-[80vh]">
+          <div className="text-center max-w-md mx-auto px-6">
+            <h1 className="text-4xl font-bold text-gray-900 mb-4">Coming Soon</h1>
+            <p className="text-lg text-gray-600 mb-6">
+              USGDP.Q3.2025 trading will be available on mainnet soon. 
+            </p>
+            <p className="text-sm text-gray-500">
+              For now, try it on Sepolia testnet by switching networks in your wallet.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 font-mono">
       {/* Top Bar */}
@@ -295,17 +361,19 @@ export default function Trade() {
               Close: <span className="font-semibold">End of Q3 2025</span>
             </div>
             <div className="text-sm text-gray-600">
-              Oracle: <span className="font-semibold">{oracleState.finalized ? 'Finalized' : 'Not finalized'}</span>
+              Prev: <a 
+                href={"https://etherscan.io/address/0x36ccdf11044f60f196e981970d592a7de567ed7b#readContract#F2"} 
+                target="_blank" 
+                rel="noopener noreferrer" 
+                className="font-semibold text-blue-600 hover:text-blue-700 underline"
+              >
+                {BASELINE_GDP}%
+              </a><br/>
+              Next: <span className="font-semibold">{getTimeToClose()}</span>
             </div>
           </div>
           
           <div className="flex items-center gap-4">
-            <Link 
-              href="/"
-              className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
-            >
-              ← Back to Home
-            </Link>
             <ConnectButton />
           </div>
         </div>
@@ -465,6 +533,85 @@ export default function Trade() {
                 <div>Tokens out: {calculateTokensOut()}</div>
               </div>
               
+              {/* Leverage and Potential Gains Display */}
+              <div className="bg-gray-50 rounded p-3 mt-3 mb-3 text-xs">
+                <div className="font-semibold mb-1">Market Parameters:</div>
+                <div className="flex justify-between">
+                  <span>Leverage:</span>
+                  <span className="font-semibold">{marketState.kPpm ? `${(Number(marketState.kPpm) / 1000000).toFixed(1)}x` : '—'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Previous GDP:</span>
+                  <span>+{BASELINE_GDP}%</span>
+                </div>
+                <div className="border-t border-gray-200 mt-2 pt-2">
+                  <div className="font-semibold mb-1">Potential Returns:</div>
+                  {mintSide === 'long' ? (
+                    <>
+                      <div className="flex justify-between text-green-600">
+                        <span>If GDP = 4.3%:</span>
+                        <span className="font-semibold">
+                          {(() => {
+                            const result = calculatePotentialReturn(4.3, true);
+                            return result.dollar !== 0 
+                              ? `${result.dollar > 0 ? '+' : ''}$${Math.abs(result.dollar).toFixed(0)} (${result.pct > 0 ? '+' : ''}${result.pct.toFixed(0)}%)`
+                              : '—';
+                          })()}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>If GDP = 3.8%:</span>
+                        <span className="font-semibold">
+                          {(() => {
+                            const result = calculatePotentialReturn(3.8, true);
+                            return result.dollar !== 0 
+                              ? `${result.dollar > 0 ? '+' : ''}$${Math.abs(result.dollar).toFixed(0)} (${result.pct > 0 ? '+' : ''}${result.pct.toFixed(0)}%)`
+                              : '—';
+                          })()}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-red-600">
+                        <span>If GDP ≤ {BASELINE_GDP}%:</span>
+                        <span className="font-semibold">
+                          {mintAmount ? `-$${parseFloat(mintAmount).toFixed(0)} (-100%)` : '-100%'}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex justify-between text-green-600">
+                        <span>If GDP = 2.3%:</span>
+                        <span className="font-semibold">
+                          {(() => {
+                            const result = calculatePotentialReturn(2.3, false);
+                            return result.dollar !== 0 
+                              ? `${result.dollar > 0 ? '+' : ''}$${Math.abs(result.dollar).toFixed(0)} (${result.pct > 0 ? '+' : ''}${result.pct.toFixed(0)}%)`
+                              : '—';
+                          })()}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>If GDP = 2.8%:</span>
+                        <span className="font-semibold">
+                          {(() => {
+                            const result = calculatePotentialReturn(2.8, false);
+                            return result.dollar !== 0 
+                              ? `${result.dollar > 0 ? '+' : ''}$${Math.abs(result.dollar).toFixed(0)} (${result.pct > 0 ? '+' : ''}${result.pct.toFixed(0)}%)`
+                              : '—';
+                          })()}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-red-600">
+                        <span>If GDP ≥ {BASELINE_GDP}%:</span>
+                        <span className="font-semibold">
+                          {mintAmount ? `-$${parseFloat(mintAmount).toFixed(0)} (-100%)` : '-100%'}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+              
               <button
                 onClick={handleMint}
                 disabled={loading || !address || !mintAmount}
@@ -474,7 +621,7 @@ export default function Trade() {
                     : 'bg-red-600 hover:bg-red-700'
                 }`}
               >
-                {loading ? 'Processing...' : mintSide === 'long' ? '📈 Go Long (GDP > 3.3%)' : '📉 Go Short (GDP < 3.3%)'}
+                {loading ? 'Processing...' : mintSide === 'long' ? `📈 Go Long (GDP > ${BASELINE_GDP}%)` : `📉 Go Short (GDP < ${BASELINE_GDP}%)`}
               </button>
             </div>
           ) : (

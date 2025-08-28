@@ -163,6 +163,12 @@ export function useMarketState() {
     functionName: 'shortRedeemDenominator',
   });
   
+  const { data: kPpm } = useReadContract({
+    address: addresses.gdpMarket,
+    abi: abis.gdpMarket,
+    functionName: 'kPpm',
+  });
+  
   return {
     phase: phase as number | undefined,
     closeAt: closeAt as bigint | undefined,
@@ -178,6 +184,7 @@ export function useMarketState() {
     longRedeemDenominator: longRedeemDenominator as bigint | undefined,
     shortRedeemNumerator: shortRedeemNumerator as bigint | undefined,
     shortRedeemDenominator: shortRedeemDenominator as bigint | undefined,
+    kPpm: kPpm as bigint | undefined,
   };
 }
 
