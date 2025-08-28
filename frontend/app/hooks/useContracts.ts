@@ -232,7 +232,7 @@ export function useOracleState() {
   };
 }
 
-// Hook for contract writes
+// Hook for contract writes with fast gas settings
 export function useContractWrites() {
   const { writeContract } = useWriteContract();
   const addresses = useContractAddresses();
@@ -244,6 +244,8 @@ export function useContractWrites() {
       abi: abis.mockUSDC,
       functionName: 'approve',
       args: [addresses.gdpMarket, amount],
+      // High priority fee for fast confirmation (5 gwei)
+      maxPriorityFeePerGas: BigInt(5000000000),
     });
   };
   
@@ -253,6 +255,8 @@ export function useContractWrites() {
       abi: abis.gdpMarket,
       functionName: 'mint',
       args: [isLong, amount],
+      // High priority fee for fast confirmation (5 gwei)
+      maxPriorityFeePerGas: BigInt(5000000000),
     });
   };
   
@@ -262,6 +266,8 @@ export function useContractWrites() {
       abi: abis.gdpMarket,
       functionName: 'pairRedeem',
       args: [amount],
+      // High priority fee for fast confirmation (5 gwei)
+      maxPriorityFeePerGas: BigInt(5000000000),
     });
   };
   
@@ -271,6 +277,8 @@ export function useContractWrites() {
       abi: abis.gdpMarket,
       functionName: 'redeemLong',
       args: [amount],
+      // High priority fee for fast confirmation (5 gwei)
+      maxPriorityFeePerGas: BigInt(5000000000),
     });
   };
   
@@ -280,6 +288,8 @@ export function useContractWrites() {
       abi: abis.gdpMarket,
       functionName: 'redeemShort',
       args: [amount],
+      // High priority fee for fast confirmation (5 gwei)
+      maxPriorityFeePerGas: BigInt(5000000000),
     });
   };
   

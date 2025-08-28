@@ -1,218 +1,27 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { useAccount, useChainId } from 'wagmi';
-import { formatEther, formatUnits, parseUnits } from 'viem';
-import { useMarketState, useUserBalances, useOracleState, useContractWrites, useContractAddresses } from './hooks/useContracts';
+import { useChainId } from 'wagmi';
+import { useContractAddresses } from './hooks/useContracts';
 
-enum Phase {
-  Pending = 0,
-  Open = 1,
-  Frozen = 2,
-  Settled = 3
-}
-
-export default function Home() {
-  const { address } = useAccount();
+export default function Landing() {
+  const [mounted, setMounted] = useState(false);
   const chainId = useChainId();
-  const marketState = useMarketState();
-  const userBalances = useUserBalances();
-  const oracleState = useOracleState();
-  const contractWrites = useContractWrites();
   const contractAddresses = useContractAddresses();
 
-  const [mintAmount, setMintAmount] = useState('');
-  const [mintSide, setMintSide] = useState<'long' | 'short'>('long');
-  const [pairRedeemAmount, setPairRedeemAmount] = useState('');
-  const [redeemAmount, setRedeemAmount] = useState('');
-  const [redeemSide, setRedeemSide] = useState<'long' | 'short'>('long');
-  const [simulatorG, setSimulatorG] = useState('0');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [mounted, setMounted] = useState(false);
-
-  // Handle client-side mounting
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  const handleMint = async () => {
-    if (!address) return;
-    
-    setLoading(true);
-    setError('');
-
-    try {
-      const usdcAmount = parseUnits(mintAmount, 6);
-      
-      // Approve USDC first
-      contractWrites.approveUSDC(usdcAmount);
-      
-      // Wait a bit then mint tokens
-      setTimeout(() => {
-        contractWrites.mint(mintSide === 'long', usdcAmount);
-      }, 2000);
-
-      setMintAmount('');
-    } catch (err: any) {
-      setError(err.message || 'Transaction failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handlePairRedeem = async () => {
-    if (!address) return;
-    
-    setLoading(true);
-    setError('');
-
-    try {
-      const tokenAmount = parseUnits(pairRedeemAmount, 18);
-      contractWrites.pairRedeem(tokenAmount);
-      setPairRedeemAmount('');
-    } catch (err: any) {
-      setError(err.message || 'Transaction failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleRedeem = async () => {
-    if (!address) return;
-    
-    setLoading(true);
-    setError('');
-
-    try {
-      const tokenAmount = parseUnits(redeemAmount, 18);
-      if (redeemSide === 'long') {
-        contractWrites.redeemLong(tokenAmount);
-      } else {
-        contractWrites.redeemShort(tokenAmount);
-      }
-      setRedeemAmount('');
-    } catch (err: any) {
-      setError(err.message || 'Transaction failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const getPhaseString = (phase?: number) => {
-    if (phase === undefined) return 'Loading...';
-    switch (phase) {
-      case Phase.Pending: return 'Pending';
-      case Phase.Open: return 'Open';
-      case Phase.Frozen: return 'Frozen';
-      case Phase.Settled: return 'Settled';
-      default: return 'Unknown';
-    }
-  };
-
-  const getTimeToClose = () => {
-    if (!marketState.closeAt) return '';
-    const now = Math.floor(Date.now() / 1000);
-    const timeLeft = Number(marketState.closeAt) - now;
-    if (timeLeft <= 0) return 'Closed';
-    
-    const days = Math.floor(timeLeft / 86400);
-    const hours = Math.floor((timeLeft % 86400) / 3600);
-    const minutes = Math.floor((timeLeft % 3600) / 60);
-    
-    return `${days}d ${hours}h ${minutes}m`;
-  };
-
-  const calculateMintFee = () => {
-    if (!mintAmount || !marketState.mintFeeBps) return '0';
-    const amount = parseFloat(mintAmount);
-    const fee = (amount * Number(marketState.mintFeeBps)) / 10000;
-    return fee.toFixed(6);
-  };
-
-  const calculateTokensOut = () => {
-    if (!mintAmount || !marketState.mintFeeBps) return '0';
-    const amount = parseFloat(mintAmount);
-    const fee = (amount * Number(marketState.mintFeeBps)) / 10000;
-    return (amount - fee).toFixed(6);
-  };
-
-  const calculatePairRedeemOut = () => {
-    if (!pairRedeemAmount || !marketState.pairRedeemFeeBps) return '0';
-    const amount = parseFloat(pairRedeemAmount);
-    const fee = (amount * Number(marketState.pairRedeemFeeBps)) / 10000;
-    return (amount - fee).toFixed(6);
-  };
-
-  const calculateRedeemOut = () => {
-    if (!redeemAmount) return '0';
-    const amount = parseFloat(redeemAmount);
-    
-    if (redeemSide === 'long' && marketState.longRedeemDenominator && marketState.longRedeemNumerator) {
-      return ((amount * Number(marketState.longRedeemNumerator)) / Number(marketState.longRedeemDenominator)).toFixed(6);
-    } else if (redeemSide === 'short' && marketState.shortRedeemDenominator && marketState.shortRedeemNumerator) {
-      return ((amount * Number(marketState.shortRedeemNumerator)) / Number(marketState.shortRedeemDenominator)).toFixed(6);
-    }
-    return '0';
-  };
-
-  const calculateSimulatorSplit = () => {
-    if (!simulatorG) return { longShare: '50.00', shortShare: '50.00' };
-    
-    const g = parseFloat(simulatorG) / 100; // Convert percentage to decimal
-    const k = 10; // Leverage from deployment
-    let shareLong = 0.5 + (0.5 * k * g);
-    
-    if (shareLong > 1) shareLong = 1;
-    if (shareLong < 0) shareLong = 0;
-    
-    const shareShort = 1 - shareLong;
-    
-    return {
-      longShare: (shareLong * 100).toFixed(2),
-      shortShare: (shareShort * 100).toFixed(2),
-    };
-  };
-
-  const estimatedPayout = () => {
-    if (marketState.phase !== Phase.Settled || !userBalances.longBalance || !userBalances.shortBalance) return '—';
-    
-    const longValue = parseFloat(formatEther(userBalances.longBalance)) * (marketState.longRedeemDenominator 
-      ? Number(marketState.longRedeemNumerator!) / Number(marketState.longRedeemDenominator) 
-      : 0);
-    
-    const shortValue = parseFloat(formatEther(userBalances.shortBalance)) * (marketState.shortRedeemDenominator
-      ? Number(marketState.shortRedeemNumerator!) / Number(marketState.shortRedeemDenominator)
-      : 0);
-
-    return (longValue + shortValue).toFixed(2);
-  };
-
-  const getEtherscanUrl = (tokenAddress?: string) => {
-    if (!chainId || !tokenAddress) return '#';
-    
-    // Etherscan URLs by chain
-    const baseUrls = {
-      1: 'https://etherscan.io',
-      11155111: 'https://sepolia.etherscan.io',
-      31337: '#', // Local - no Etherscan
-    };
-    
-    const baseUrl = baseUrls[chainId as keyof typeof baseUrls] || '#';
-    if (baseUrl === '#') return '#';
-    
-    return `${baseUrl}/token/${tokenAddress}`;
-  };
-
   const getContractUrl = (contractAddress?: string) => {
     if (!chainId || !contractAddress) return '#';
     
-    // Etherscan URLs by chain
     const baseUrls = {
       1: 'https://etherscan.io',
       11155111: 'https://sepolia.etherscan.io',
-      31337: '#', // Local - no Etherscan
+      31337: '#',
     };
     
     const baseUrl = baseUrls[chainId as keyof typeof baseUrls] || '#';
@@ -221,398 +30,195 @@ export default function Home() {
     return `${baseUrl}/address/${contractAddress}`;
   };
 
-  const addTokenToWallet = async (tokenAddress: string, symbol: string, name: string) => {
-    try {
-      // Check if window.ethereum is available
-      if (!window.ethereum) {
-        alert('Please install MetaMask or another Web3 wallet to add tokens');
-        return;
-      }
-
-      // Request to add token to wallet
-      await window.ethereum.request({
-        method: 'wallet_watchAsset',
-        params: {
-          type: 'ERC20',
-          options: {
-            address: tokenAddress,
-            symbol: symbol,
-            decimals: 18,
-            name: name,
-          },
-        },
-      });
-    } catch (error) {
-      console.error('Error adding token to wallet:', error);
-      alert('Failed to add token to wallet');
-    }
-  };
-
-  const getUniswapUrl = (tokenAddress?: string) => {
-    if (!chainId || !tokenAddress) return '#';
+  const getUniswapUrl = () => {
+    if (!chainId) return '#';
     
-    // Uniswap URLs by chain
     const baseUrls = {
-      1: 'https://app.uniswap.org', // Mainnet
-      11155111: 'https://app.uniswap.org', // Sepolia 
-      31337: '#', // Local - no Uniswap
+      1: 'https://app.uniswap.org',
+      11155111: 'https://app.uniswap.org', 
+      31337: '#',
     };
     
     const baseUrl = baseUrls[chainId as keyof typeof baseUrls] || '#';
     if (baseUrl === '#') return '#';
     
-    // USDC addresses by chain
-    const usdcAddresses = {
-      1: '0xA0b86a33E6441e54B9c8c604Dc395d6Af2dc0Ae8', // Real USDC on mainnet
-      11155111: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', // USDC on Sepolia testnet
-      31337: '0x5FbDB2315678afecb367f032d93F642f64180aa3', // Mock USDC on local
-    };
-    
-    const usdcAddress = usdcAddresses[chainId as keyof typeof usdcAddresses];
-    if (!usdcAddress) return '#';
-    
-    return `${baseUrl}/#/swap?inputCurrency=${usdcAddress}&outputCurrency=${tokenAddress}`;
+    // Just link to Uniswap app, users can search for the tokens there
+    return baseUrl;
   };
 
   if (!mounted) {
-    return <div className="min-h-screen bg-gray-50 font-mono flex items-center justify-center">Loading...</div>;
+    return <div className="min-h-screen bg-gradient-to-br from-blue-900 via-red-100 to-red-900 flex items-center justify-center">Loading...</div>;
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 font-mono">
-      {/* Top Bar */}
-      <div className="bg-white border-b border-gray-200 px-4 py-3">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-6">
-            <h1 className="text-xl font-bold">USGDP.Q3.2025</h1>
-            <div className="text-sm text-gray-600">
-              Phase: <span className="font-semibold">{getPhaseString(marketState.phase)}</span>
+    <div className="min-h-screen bg-gradient-to-br from-blue-900 via-red-100 to-red-900 relative overflow-hidden">
+      {/* American Flag Pattern Overlay */}
+      <div className="absolute inset-0 opacity-10">
+        <div className="absolute top-0 left-0 w-1/3 h-2/5 bg-blue-800"></div>
+        {Array.from({ length: 13 }, (_, i) => (
+          <div
+            key={i}
+            className={`absolute left-0 right-0 h-1/13 ${i % 2 === 0 ? 'bg-red-600' : 'bg-white'}`}
+            style={{
+              top: `${(i / 13) * 100}%`,
+              height: `${100 / 13}%`,
+            }}
+          />
+        ))}
+        {/* Stars */}
+        <div className="absolute top-0 left-0 w-1/3 h-2/5 grid grid-cols-6 grid-rows-5 p-2">
+          {Array.from({ length: 50 }, (_, i) => (
+            <div key={i} className="flex items-center justify-center">
+              <div className="w-2 h-2 bg-white transform rotate-45" style={{
+                clipPath: 'polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)'
+              }}>★</div>
             </div>
-            <div className="text-sm text-gray-600">
-              Close: <span className="font-semibold">End of Q3 2025</span>
-            </div>
-            <div className="text-sm text-gray-600">
-              Oracle: <span className="font-semibold">{oracleState.finalized ? 'Finalized' : 'Not finalized'}</span>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-4">
-            <ConnectButton />
-          </div>
+          ))}
         </div>
       </div>
 
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 mx-4 mt-4 rounded">
-          {error}
+      {/* Header */}
+      <header className="relative z-10 flex justify-between items-center p-6 bg-black/20 backdrop-blur-md border-b border-white/30">
+        <div className="flex items-center space-x-2">
+          <h1 className="text-2xl font-bold text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] flex items-center gap-2">
+            🇺🇸 USGDP.Q3.2025
+          </h1>
         </div>
-      )}
+        <div className="flex items-center space-x-4">
+          <Link 
+            href="/trade"
+            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors"
+          >
+            Trade Now
+          </Link>
+          <ConnectButton />
+        </div>
+      </header>
 
-      <div className="max-w-6xl mx-auto p-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Vault Panel */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
-            Vault
+      {/* Hero Section */}
+      <main className="relative z-10 flex flex-col items-center justify-center px-6 py-20 text-center">
+        <div className="max-w-4xl mx-auto">
+          {/* Main Headline */}
+          <h1 className="text-5xl md:text-7xl font-bold text-white mb-6 leading-tight drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">
+            Trade the Next
+            <span className="block bg-gradient-to-r from-red-400 to-blue-400 bg-clip-text text-transparent drop-shadow-[0_2px_4px_rgba(0,0,0,0.6)]">
+              US GDP Print
+            </span>
+          </h1>
+
+          {/* Previous GDP Status */}
+          <div className="bg-black/30 backdrop-blur-md rounded-full px-6 py-3 mb-6 inline-flex items-center gap-3">
+            <span className="text-white font-medium drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
+              Previous Q2 2025 GDP: <span className="font-bold text-green-400">+3.3%</span>
+            </span>
+            <span className="text-white/70">→</span>
+            <span className="text-white font-medium drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
+              Q3 2025: <span className="font-bold text-yellow-300">Pending</span>
+            </span>
+          </div>
+
+          <p className="text-xl md:text-2xl text-white mb-8 max-w-3xl mx-auto leading-relaxed drop-shadow-[0_1px_3px_rgba(0,0,0,0.8)]">
+            After the Q2 2025 US GDP was{' '}<a 
+              href="https://x.com/lex_node/status/1961075563365347781"
+              className="text-yellow-300 hover:text-yellow-200 underline font-bold drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]"
+            >published on-chain and signed</a>, we're launching a permissionless prediction market for the next print: USGDP.Q3.2025.
+          </p>
+
+          {/* Key Value Propositions */}
+          <div className="grid md:grid-cols-2 gap-8 mb-12 max-w-4xl mx-auto">
+            <div className="bg-black/20 backdrop-blur-md rounded-xl p-6 border border-white/30 shadow-xl">
+              <h3 className="text-2xl font-bold text-white mb-4 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">Pick Your Side</h3>
+              <p className="text-white text-lg leading-relaxed drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">
+                Pick a side—Long or Short—mint your tokenized position, or just buy either one on Uniswap. 
+                When the official QoQ GDP lands on-chain, the vault splits between longs and shorts by a simple rule. 
+                Winners are paid in USDC.
+              </p>
+            </div>
+            
+            <div className="bg-black/20 backdrop-blur-md rounded-xl p-6 border border-white/30 shadow-xl">
+              <h3 className="text-2xl font-bold text-white mb-4 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">No Middlemen</h3>
+              <p className="text-white text-lg leading-relaxed drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">
+                No custodians. No IOUs. You're trading the surprise, not the headline. 
+                The contract is permissionless; the payoff is deterministic; the data is signed on-chain.
+              </p>
+            </div>
+          </div>
+
+          {/* How It Works */}
+          <div className="bg-black/25 backdrop-blur-md rounded-2xl p-8 mb-12 border border-white/30 max-w-4xl mx-auto shadow-2xl">
+            <h2 className="text-3xl font-bold text-white mb-6 drop-shadow-[0_1px_3px_rgba(0,0,0,0.8)]">How It Works</h2>
+            <p className="text-white text-lg mb-6 leading-relaxed drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">
+              If GDP comes in higher, Long's share grows; if lower, Short's share grows. 
+              Both positions are standard ERC-20s, so you can hold, trade, or exit on Uniswap at any time before settlement. 
+              It's a clean, fully-collateralized, oracle-settled market tied to a single economic release.
+            </p>
+            <p className="text-white text-lg leading-relaxed drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">
+              Connect your wallet, choose Long or Short, set an amount, and mint—or hop straight to Uniswap for liquidity.
+            </p>
+          </div>
+
+          {/* CTA Buttons */}
+          <div className="flex flex-col sm:flex-row gap-4 justify-center mb-12">
+            <Link 
+              href="/trade"
+              className="px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold text-lg rounded-xl transition-all transform hover:scale-105 shadow-lg"
+            >
+              Start Trading
+            </Link>
+            {/* <a
+              href={getUniswapUrl()}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-8 py-4 bg-red-600 hover:bg-red-700 text-white font-bold text-lg rounded-xl transition-all transform hover:scale-105 shadow-lg"
+            >
+              Buy on Uniswap
+            </a> */}
+          </div>
+
+          {/* Links Section */}
+          <div className="flex flex-wrap justify-center gap-6 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
+            <a 
+              href="https://github.com/liamzebedee/gdp-markets"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 hover:text-white transition-colors"
+            >
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                <path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clipRule="evenodd" />
+              </svg>
+              GitHub
+            </a>
             <a 
               href={getContractUrl(contractAddresses.gdpMarket)}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-gray-400 hover:text-blue-600"
-              title="View contract on Etherscan"
+              className="flex items-center gap-2 hover:text-white transition-colors"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
               </svg>
+              Contract
             </a>
-          </h2>
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span>TVL (USDC):</span>
-              <span className="font-semibold">
-                {marketState.vaultBalance ? formatUnits(marketState.vaultBalance, 6) : '0'}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="flex items-center gap-1">
-                Your L balance:
-                {marketState.longTokenAddress && (
-                  <>
-                    <a 
-                      href={getEtherscanUrl(marketState.longTokenAddress)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-gray-400 hover:text-blue-600"
-                      title="View on Etherscan"
-                    >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                      </svg>
-                    </a>
-                    <button
-                      onClick={() => addTokenToWallet(marketState.longTokenAddress!, 'USGDP.Q3.2025.L', 'USGDP.Q3.2025 Long')}
-                      className="text-gray-400 hover:text-green-600 ml-1"
-                      title="Add to Wallet"
-                    >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                      </svg>
-                    </button>
-                  </>
-                )}
-              </span>
-              <span className="font-semibold">
-                {userBalances.longBalance ? parseFloat(formatEther(userBalances.longBalance)).toFixed(4) : '0'}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="flex items-center gap-1">
-                Your S balance:
-                {marketState.shortTokenAddress && (
-                  <>
-                    <a 
-                      href={getEtherscanUrl(marketState.shortTokenAddress)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-gray-400 hover:text-blue-600"
-                      title="View on Etherscan"
-                    >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                      </svg>
-                    </a>
-                    <button
-                      onClick={() => addTokenToWallet(marketState.shortTokenAddress!, 'USGDP.Q3.2025.S', 'USGDP.Q3.2025 Short')}
-                      className="text-gray-400 hover:text-red-600 ml-1"
-                      title="Add to Wallet"
-                    >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                      </svg>
-                    </button>
-                  </>
-                )}
-              </span>
-              <span className="font-semibold">
-                {userBalances.shortBalance ? parseFloat(formatEther(userBalances.shortBalance)).toFixed(4) : '0'}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span>Your USDC balance:</span>
-              <span className="font-semibold">
-                {userBalances.usdcBalance ? formatUnits(userBalances.usdcBalance, 6) : '0'}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span>Estimated payout:</span>
-              <span className="font-semibold">{estimatedPayout()} USDC</span>
-            </div>
+            <a 
+              href="https://github.com/liamzebedee/gdp-markets/blob/main/docs/SPEC.md"
+              className="flex items-center gap-2 hover:text-white transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10m0 0V6a2 2 0 00-2-2H9a2 2 0 00-2 2v2m0 0v8a2 2 0 002 2h6a2 2 0 002-2V8" />
+              </svg>
+              Docs
+            </a>
           </div>
         </div>
+      </main>
 
-        {/* Mint Panel */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <h2 className="text-lg font-bold mb-4">Mint</h2>
-          {marketState.phase === Phase.Open ? (
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-2">Side</label>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setMintSide('long')}
-                    className={`px-4 py-2 rounded text-sm ${
-                      mintSide === 'long' 
-                        ? 'bg-green-100 text-green-800 border border-green-300' 
-                        : 'bg-gray-100 text-gray-700 border border-gray-300'
-                    }`}
-                  >
-                    Long
-                  </button>
-                  <button
-                    onClick={() => setMintSide('short')}
-                    className={`px-4 py-2 rounded text-sm ${
-                      mintSide === 'short' 
-                        ? 'bg-red-100 text-red-800 border border-red-300' 
-                        : 'bg-gray-100 text-gray-700 border border-gray-300'
-                    }`}
-                  >
-                    Short
-                  </button>
-                </div>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium mb-2">USDC Amount</label>
-                <input
-                  type="number"
-                  value={mintAmount}
-                  onChange={(e) => setMintAmount(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
-                  placeholder="0.0"
-                />
-              </div>
-              
-              <div className="text-xs text-gray-600 space-y-1">
-                <div>Fee: {calculateMintFee()} USDC</div>
-                <div>Tokens out: {calculateTokensOut()}</div>
-              </div>
-              
-              <button
-                onClick={handleMint}
-                disabled={loading || !address || !mintAmount}
-                className="w-full bg-blue-600 text-white py-2 px-4 rounded text-sm disabled:bg-gray-400"
-              >
-                {loading ? 'Processing...' : 'Mint'}
-              </button>
-            </div>
-          ) : (
-            <div className="text-sm text-gray-600">
-              Minting is only available during Open phase
-            </div>
-          )}
-        </div>
-
-        {/* Pair Redeem Panel */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <h2 className="text-lg font-bold mb-4">Pair Redeem</h2>
-          {marketState.phase === Phase.Open ? (
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-2">Token Amount</label>
-                <input
-                  type="number"
-                  value={pairRedeemAmount}
-                  onChange={(e) => setPairRedeemAmount(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
-                  placeholder="0.0"
-                />
-                <div className="text-xs text-gray-500 mt-1">
-                  Burns equal amounts of L and S tokens
-                </div>
-              </div>
-              
-              <div className="text-xs text-gray-600">
-                USDC out: {calculatePairRedeemOut()}
-              </div>
-              
-              <button
-                onClick={handlePairRedeem}
-                disabled={loading || !address || !pairRedeemAmount}
-                className="w-full bg-yellow-600 text-white py-2 px-4 rounded text-sm disabled:bg-gray-400"
-              >
-                {loading ? 'Processing...' : 'Pair Redeem'}
-              </button>
-            </div>
-          ) : (
-            <div className="text-sm text-gray-600">
-              Pair redemption is only available during Open phase
-            </div>
-          )}
-        </div>
-
-        {/* Oracle Panel */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <h2 className="text-lg font-bold mb-4">Oracle</h2>
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span>Quarter:</span>
-              <span className="font-semibold">Q3 2025</span>
-            </div>
-            <div className="flex justify-between">
-              <span>GDP Change (g):</span>
-              <span className="font-semibold">
-                {oracleState.gPpm && oracleState.gPpm !== BigInt(0)
-                  ? `${(Number(oracleState.gPpm) / 10000).toFixed(2)}%`
-                  : '—'
-                }
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span>Status:</span>
-              <span className="font-semibold">
-                {oracleState.finalized ? 'Finalized' : 'Not finalized'}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Prices Panel */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <h2 className="text-lg font-bold mb-4">Prices</h2>
-          <div className="space-y-2 text-sm text-gray-600">
-            <div>L/USDC: —</div>
-            <div>S/USDC: —</div>
-            <div className="pt-2">
-              <a 
-                href={getUniswapUrl(marketState.longTokenAddress)} 
-                className="text-blue-600 hover:underline text-xs"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Trade L on Uniswap →
-              </a>
-            </div>
-            <div>
-              <a 
-                href={getUniswapUrl(marketState.shortTokenAddress)} 
-                className="text-blue-600 hover:underline text-xs"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Trade S on Uniswap →
-              </a>
-            </div>
-            {(!chainId || chainId === 31337) && (
-              <div className="text-xs text-gray-500 pt-2">
-                Uniswap v3 pools not available on local network
-              </div>
-            )}
-            {chainId && chainId !== 31337 && (
-              <div className="text-xs text-gray-500 pt-2">
-                Uniswap v3 pools may not be deployed yet
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Simulator Panel */}
-        {marketState.phase !== Phase.Settled && (
-          <div className="bg-white rounded-lg border border-gray-200 p-6 lg:col-span-2">
-            <h2 className="text-lg font-bold mb-4">Settlement Simulator</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-2">
-                  Hypothetical GDP Change (g) as %
-                </label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={simulatorG}
-                  onChange={(e) => setSimulatorG(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
-                  placeholder="0.0"
-                />
-                <div className="text-xs text-gray-500 mt-1">
-                  Example: 0.1% for positive growth, -0.5% for negative growth
-                </div>
-              </div>
-              
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span>Long share:</span>
-                  <span className="font-semibold">{calculateSimulatorSplit().longShare}%</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Short share:</span>
-                  <span className="font-semibold">{calculateSimulatorSplit().shortShare}%</span>
-                </div>
-                <div className="text-xs text-gray-500 pt-2">
-                  Projected vault split at settlement
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+      {/* Footer */}
+      <footer className="relative z-10 bg-black/20 backdrop-blur-sm border-t border-white/30 p-6 text-center text-white">
+        <p className="text-sm drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">
+          Built with ❤️ for transparent, permissionless finance. 
+          This is experimental software—trade at your own risk.
+        </p>
+      </footer>
     </div>
   );
 }
