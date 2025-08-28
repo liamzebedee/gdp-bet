@@ -1,10 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ethers } from 'ethers';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { useAccount, useNetwork } from 'wagmi';
-import { useContracts, useReadOnlyContracts } from './hooks/useContracts';
+import { useAccount, useChainId } from 'wagmi';
+import { formatEther, formatUnits, parseUnits } from 'viem';
+import { useMarketState, useUserBalances, useOracleState, useContractWrites, useContractAddresses } from './hooks/useContracts';
 
 enum Phase {
   Pending = 0,
@@ -13,53 +13,14 @@ enum Phase {
   Settled = 3
 }
 
-interface ContractState {
-  phase: Phase;
-  closeAt: number;
-  longBalance: string;
-  shortBalance: string;
-  usdcBalance: string;
-  vaultBalance: string;
-  longTokenAddress: string;
-  shortTokenAddress: string;
-  mintFeeBps: number;
-  pairRedeemFeeBps: number;
-  gPpm: string;
-  longPot: string;
-  shortPot: string;
-  longRedeemNumerator: string;
-  longRedeemDenominator: string;
-  shortRedeemNumerator: string;
-  shortRedeemDenominator: string;
-  oracleFinalized: boolean;
-}
-
 export default function Home() {
   const { address } = useAccount();
-  const { chain } = useNetwork();
-  const contracts = useContracts();
-  const readOnlyContracts = useReadOnlyContracts();
-
-  const [state, setState] = useState<ContractState>({
-    phase: Phase.Pending,
-    closeAt: 0,
-    longBalance: '0',
-    shortBalance: '0',
-    usdcBalance: '0',
-    vaultBalance: '0',
-    longTokenAddress: '',
-    shortTokenAddress: '',
-    mintFeeBps: 0,
-    pairRedeemFeeBps: 0,
-    gPpm: '0',
-    longPot: '0',
-    shortPot: '0',
-    longRedeemNumerator: '0',
-    longRedeemDenominator: '0',
-    shortRedeemNumerator: '0',
-    shortRedeemDenominator: '0',
-    oracleFinalized: false,
-  });
+  const chainId = useChainId();
+  const marketState = useMarketState();
+  const userBalances = useUserBalances();
+  const oracleState = useOracleState();
+  const contractWrites = useContractWrites();
+  const contractAddresses = useContractAddresses();
 
   const [mintAmount, setMintAmount] = useState('');
   const [mintSide, setMintSide] = useState<'long' | 'short'>('long');
@@ -76,114 +37,22 @@ export default function Home() {
     setMounted(true);
   }, []);
 
-  // Fetch contract state
-  useEffect(() => {
-    const fetchState = async () => {
-      if (!readOnlyContracts?.gdpMarket) return;
-
-      try {
-        const [
-          phase,
-          closeAt,
-          longTokenAddr,
-          shortTokenAddr,
-          mintFeeBps,
-          pairRedeemFeeBps,
-          vaultBalance,
-          gPpm,
-          longPot,
-          shortPot,
-          longRedeemNumerator,
-          longRedeemDenominator,
-          shortRedeemNumerator,
-          shortRedeemDenominator,
-        ] = await Promise.all([
-          readOnlyContracts.gdpMarket.getCurrentPhase(),
-          readOnlyContracts.gdpMarket.closeAt(),
-          readOnlyContracts.gdpMarket.longToken(),
-          readOnlyContracts.gdpMarket.shortToken(),
-          readOnlyContracts.gdpMarket.mintFeeBps(),
-          readOnlyContracts.gdpMarket.pairRedeemFeeBps(),
-          readOnlyContracts.mockUSDC.balanceOf(readOnlyContracts.gdpMarket.address),
-          readOnlyContracts.gdpMarket.gPpm(),
-          readOnlyContracts.gdpMarket.longPot(),
-          readOnlyContracts.gdpMarket.shortPot(),
-          readOnlyContracts.gdpMarket.longRedeemNumerator(),
-          readOnlyContracts.gdpMarket.longRedeemDenominator(),
-          readOnlyContracts.gdpMarket.shortRedeemNumerator(),
-          readOnlyContracts.gdpMarket.shortRedeemDenominator(),
-        ]);
-
-        // Check oracle status
-        const [, oracleFinalized] = await readOnlyContracts.mockGDPOracle.readDelta();
-
-        let longBalance = '0';
-        let shortBalance = '0';
-        let usdcBalance = '0';
-
-        if (address) {
-          const longTokenContract = new ethers.Contract(longTokenAddr, [
-            'function balanceOf(address) external view returns (uint256)'
-          ], readOnlyContracts.gdpMarket.provider);
-
-          const shortTokenContract = new ethers.Contract(shortTokenAddr, [
-            'function balanceOf(address) external view returns (uint256)'
-          ], readOnlyContracts.gdpMarket.provider);
-
-          [longBalance, shortBalance, usdcBalance] = await Promise.all([
-            longTokenContract.balanceOf(address),
-            shortTokenContract.balanceOf(address),
-            readOnlyContracts.mockUSDC.balanceOf(address),
-          ]);
-        }
-
-        setState({
-          phase,
-          closeAt: closeAt.toNumber(),
-          longBalance: ethers.utils.formatEther(longBalance),
-          shortBalance: ethers.utils.formatEther(shortBalance),
-          usdcBalance: ethers.utils.formatUnits(usdcBalance, 6),
-          vaultBalance: ethers.utils.formatUnits(vaultBalance, 6),
-          longTokenAddress: longTokenAddr,
-          shortTokenAddress: shortTokenAddr,
-          mintFeeBps: mintFeeBps.toNumber(),
-          pairRedeemFeeBps: pairRedeemFeeBps.toNumber(),
-          gPpm: gPpm.toString(),
-          longPot: ethers.utils.formatUnits(longPot, 6),
-          shortPot: ethers.utils.formatUnits(shortPot, 6),
-          longRedeemNumerator: longRedeemNumerator.toString(),
-          longRedeemDenominator: longRedeemDenominator.toString(),
-          shortRedeemNumerator: shortRedeemNumerator.toString(),
-          shortRedeemDenominator: shortRedeemDenominator.toString(),
-          oracleFinalized,
-        });
-      } catch (err) {
-        console.error('Error fetching state:', err);
-        setError('Failed to fetch contract state');
-      }
-    };
-
-    fetchState();
-    const interval = setInterval(fetchState, 5000); // Refresh every 5 seconds
-    return () => clearInterval(interval);
-  }, [readOnlyContracts, address]);
-
   const handleMint = async () => {
-    if (!contracts?.gdpMarket || !address) return;
+    if (!address) return;
     
     setLoading(true);
     setError('');
 
     try {
-      const usdcAmount = ethers.utils.parseUnits(mintAmount, 6);
+      const usdcAmount = parseUnits(mintAmount, 6);
       
       // Approve USDC first
-      const approveTx = await contracts.mockUSDC.approve(contracts.gdpMarket.address, usdcAmount);
-      await approveTx.wait();
-
-      // Mint tokens
-      const mintTx = await contracts.gdpMarket.mint(mintSide === 'long', usdcAmount);
-      await mintTx.wait();
+      contractWrites.approveUSDC(usdcAmount);
+      
+      // Wait a bit then mint tokens
+      setTimeout(() => {
+        contractWrites.mint(mintSide === 'long', usdcAmount);
+      }, 2000);
 
       setMintAmount('');
     } catch (err: any) {
@@ -194,15 +63,14 @@ export default function Home() {
   };
 
   const handlePairRedeem = async () => {
-    if (!contracts?.gdpMarket || !address) return;
+    if (!address) return;
     
     setLoading(true);
     setError('');
 
     try {
-      const tokenAmount = ethers.utils.parseEther(pairRedeemAmount);
-      const tx = await contracts.gdpMarket.pairRedeem(tokenAmount);
-      await tx.wait();
+      const tokenAmount = parseUnits(pairRedeemAmount, 18);
+      contractWrites.pairRedeem(tokenAmount);
       setPairRedeemAmount('');
     } catch (err: any) {
       setError(err.message || 'Transaction failed');
@@ -212,17 +80,18 @@ export default function Home() {
   };
 
   const handleRedeem = async () => {
-    if (!contracts?.gdpMarket || !address) return;
+    if (!address) return;
     
     setLoading(true);
     setError('');
 
     try {
-      const tokenAmount = ethers.utils.parseEther(redeemAmount);
-      const tx = redeemSide === 'long' 
-        ? await contracts.gdpMarket.redeemLong(tokenAmount)
-        : await contracts.gdpMarket.redeemShort(tokenAmount);
-      await tx.wait();
+      const tokenAmount = parseUnits(redeemAmount, 18);
+      if (redeemSide === 'long') {
+        contractWrites.redeemLong(tokenAmount);
+      } else {
+        contractWrites.redeemShort(tokenAmount);
+      }
       setRedeemAmount('');
     } catch (err: any) {
       setError(err.message || 'Transaction failed');
@@ -231,7 +100,8 @@ export default function Home() {
     }
   };
 
-  const getPhaseString = (phase: Phase) => {
+  const getPhaseString = (phase?: number) => {
+    if (phase === undefined) return 'Loading...';
     switch (phase) {
       case Phase.Pending: return 'Pending';
       case Phase.Open: return 'Open';
@@ -242,9 +112,9 @@ export default function Home() {
   };
 
   const getTimeToClose = () => {
-    if (state.closeAt === 0) return '';
+    if (!marketState.closeAt) return '';
     const now = Math.floor(Date.now() / 1000);
-    const timeLeft = state.closeAt - now;
+    const timeLeft = Number(marketState.closeAt) - now;
     if (timeLeft <= 0) return 'Closed';
     
     const days = Math.floor(timeLeft / 86400);
@@ -255,23 +125,23 @@ export default function Home() {
   };
 
   const calculateMintFee = () => {
-    if (!mintAmount) return '0';
+    if (!mintAmount || !marketState.mintFeeBps) return '0';
     const amount = parseFloat(mintAmount);
-    const fee = (amount * state.mintFeeBps) / 10000;
+    const fee = (amount * Number(marketState.mintFeeBps)) / 10000;
     return fee.toFixed(6);
   };
 
   const calculateTokensOut = () => {
-    if (!mintAmount) return '0';
+    if (!mintAmount || !marketState.mintFeeBps) return '0';
     const amount = parseFloat(mintAmount);
-    const fee = (amount * state.mintFeeBps) / 10000;
+    const fee = (amount * Number(marketState.mintFeeBps)) / 10000;
     return (amount - fee).toFixed(6);
   };
 
   const calculatePairRedeemOut = () => {
-    if (!pairRedeemAmount) return '0';
+    if (!pairRedeemAmount || !marketState.pairRedeemFeeBps) return '0';
     const amount = parseFloat(pairRedeemAmount);
-    const fee = (amount * state.pairRedeemFeeBps) / 10000;
+    const fee = (amount * Number(marketState.pairRedeemFeeBps)) / 10000;
     return (amount - fee).toFixed(6);
   };
 
@@ -279,10 +149,10 @@ export default function Home() {
     if (!redeemAmount) return '0';
     const amount = parseFloat(redeemAmount);
     
-    if (redeemSide === 'long' && state.longRedeemDenominator !== '0') {
-      return ((amount * parseFloat(state.longRedeemNumerator)) / parseFloat(state.longRedeemDenominator)).toFixed(6);
-    } else if (redeemSide === 'short' && state.shortRedeemDenominator !== '0') {
-      return ((amount * parseFloat(state.shortRedeemNumerator)) / parseFloat(state.shortRedeemDenominator)).toFixed(6);
+    if (redeemSide === 'long' && marketState.longRedeemDenominator && marketState.longRedeemNumerator) {
+      return ((amount * Number(marketState.longRedeemNumerator)) / Number(marketState.longRedeemDenominator)).toFixed(6);
+    } else if (redeemSide === 'short' && marketState.shortRedeemDenominator && marketState.shortRedeemNumerator) {
+      return ((amount * Number(marketState.shortRedeemNumerator)) / Number(marketState.shortRedeemDenominator)).toFixed(6);
     }
     return '0';
   };
@@ -306,21 +176,80 @@ export default function Home() {
   };
 
   const estimatedPayout = () => {
-    if (state.phase !== Phase.Settled) return '—';
+    if (marketState.phase !== Phase.Settled || !userBalances.longBalance || !userBalances.shortBalance) return '—';
     
-    const longValue = parseFloat(state.longBalance) * (state.longRedeemDenominator !== '0' 
-      ? parseFloat(state.longRedeemNumerator) / parseFloat(state.longRedeemDenominator) 
+    const longValue = parseFloat(formatEther(userBalances.longBalance)) * (marketState.longRedeemDenominator 
+      ? Number(marketState.longRedeemNumerator!) / Number(marketState.longRedeemDenominator) 
       : 0);
     
-    const shortValue = parseFloat(state.shortBalance) * (state.shortRedeemDenominator !== '0'
-      ? parseFloat(state.shortRedeemNumerator) / parseFloat(state.shortRedeemDenominator)
+    const shortValue = parseFloat(formatEther(userBalances.shortBalance)) * (marketState.shortRedeemDenominator
+      ? Number(marketState.shortRedeemNumerator!) / Number(marketState.shortRedeemDenominator)
       : 0);
 
     return (longValue + shortValue).toFixed(2);
   };
 
-  const getUniswapUrl = (tokenAddress: string) => {
-    if (!chain || !tokenAddress) return '#';
+  const getEtherscanUrl = (tokenAddress?: string) => {
+    if (!chainId || !tokenAddress) return '#';
+    
+    // Etherscan URLs by chain
+    const baseUrls = {
+      1: 'https://etherscan.io',
+      11155111: 'https://sepolia.etherscan.io',
+      31337: '#', // Local - no Etherscan
+    };
+    
+    const baseUrl = baseUrls[chainId as keyof typeof baseUrls] || '#';
+    if (baseUrl === '#') return '#';
+    
+    return `${baseUrl}/token/${tokenAddress}`;
+  };
+
+  const getContractUrl = (contractAddress?: string) => {
+    if (!chainId || !contractAddress) return '#';
+    
+    // Etherscan URLs by chain
+    const baseUrls = {
+      1: 'https://etherscan.io',
+      11155111: 'https://sepolia.etherscan.io',
+      31337: '#', // Local - no Etherscan
+    };
+    
+    const baseUrl = baseUrls[chainId as keyof typeof baseUrls] || '#';
+    if (baseUrl === '#') return '#';
+    
+    return `${baseUrl}/address/${contractAddress}`;
+  };
+
+  const addTokenToWallet = async (tokenAddress: string, symbol: string, name: string) => {
+    try {
+      // Check if window.ethereum is available
+      if (!window.ethereum) {
+        alert('Please install MetaMask or another Web3 wallet to add tokens');
+        return;
+      }
+
+      // Request to add token to wallet
+      await window.ethereum.request({
+        method: 'wallet_watchAsset',
+        params: {
+          type: 'ERC20',
+          options: {
+            address: tokenAddress,
+            symbol: symbol,
+            decimals: 18,
+            name: name,
+          },
+        },
+      });
+    } catch (error) {
+      console.error('Error adding token to wallet:', error);
+      alert('Failed to add token to wallet');
+    }
+  };
+
+  const getUniswapUrl = (tokenAddress?: string) => {
+    if (!chainId || !tokenAddress) return '#';
     
     // Uniswap URLs by chain
     const baseUrls = {
@@ -329,21 +258,25 @@ export default function Home() {
       31337: '#', // Local - no Uniswap
     };
     
-    const baseUrl = baseUrls[chain.id as keyof typeof baseUrls] || '#';
+    const baseUrl = baseUrls[chainId as keyof typeof baseUrls] || '#';
     if (baseUrl === '#') return '#';
     
     // USDC addresses by chain
     const usdcAddresses = {
-      1: '0xA0b86a33E6441e54B9c8c604Dc395d6Af2dc0Ae8',
-      11155111: '0x5FbDB2315678afecb367f032d93F642f64180aa3', // Mock USDC on Sepolia
+      1: '0xA0b86a33E6441e54B9c8c604Dc395d6Af2dc0Ae8', // Real USDC on mainnet
+      11155111: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', // USDC on Sepolia testnet
       31337: '0x5FbDB2315678afecb367f032d93F642f64180aa3', // Mock USDC on local
     };
     
-    const usdcAddress = usdcAddresses[chain.id as keyof typeof usdcAddresses];
+    const usdcAddress = usdcAddresses[chainId as keyof typeof usdcAddresses];
     if (!usdcAddress) return '#';
     
     return `${baseUrl}/#/swap?inputCurrency=${usdcAddress}&outputCurrency=${tokenAddress}`;
   };
+
+  if (!mounted) {
+    return <div className="min-h-screen bg-gray-50 font-mono flex items-center justify-center">Loading...</div>;
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 font-mono">
@@ -353,20 +286,17 @@ export default function Home() {
           <div className="flex items-center gap-6">
             <h1 className="text-xl font-bold">USGDP.Q3.2025</h1>
             <div className="text-sm text-gray-600">
-              Phase: <span className="font-semibold">{getPhaseString(state.phase)}</span>
+              Phase: <span className="font-semibold">{getPhaseString(marketState.phase)}</span>
             </div>
             <div className="text-sm text-gray-600">
               Close: <span className="font-semibold">End of Q3 2025</span>
             </div>
             <div className="text-sm text-gray-600">
-              Oracle: <span className="font-semibold">{state.oracleFinalized ? 'Finalized' : 'Not finalized'}</span>
+              Oracle: <span className="font-semibold">{oracleState.finalized ? 'Finalized' : 'Not finalized'}</span>
             </div>
           </div>
           
           <div className="flex items-center gap-4">
-            <div className="text-sm text-gray-600">
-              Network: <span className="font-semibold">{mounted ? (chain?.name || 'Unknown') : 'Loading...'}</span>
-            </div>
             <ConnectButton />
           </div>
         </div>
@@ -381,53 +311,108 @@ export default function Home() {
       <div className="max-w-6xl mx-auto p-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Vault Panel */}
         <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <h2 className="text-lg font-bold mb-4">Vault</h2>
+          <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
+            Vault
+            <a 
+              href={getContractUrl(contractAddresses.gdpMarket)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-gray-400 hover:text-blue-600"
+              title="View contract on Etherscan"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </a>
+          </h2>
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
               <span>TVL (USDC):</span>
-              <span className="font-semibold">{state.vaultBalance}</span>
+              <span className="font-semibold">
+                {marketState.vaultBalance ? formatUnits(marketState.vaultBalance, 6) : '0'}
+              </span>
             </div>
             <div className="flex justify-between">
-              <span>Your L balance:</span>
-              <span className="font-semibold">{parseFloat(state.longBalance).toFixed(4)}</span>
+              <span className="flex items-center gap-1">
+                Your L balance:
+                {marketState.longTokenAddress && (
+                  <>
+                    <a 
+                      href={getEtherscanUrl(marketState.longTokenAddress)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-gray-400 hover:text-blue-600"
+                      title="View on Etherscan"
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </a>
+                    <button
+                      onClick={() => addTokenToWallet(marketState.longTokenAddress!, 'USGDP.Q3.2025.L', 'USGDP.Q3.2025 Long')}
+                      className="text-gray-400 hover:text-green-600 ml-1"
+                      title="Add to Wallet"
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                      </svg>
+                    </button>
+                  </>
+                )}
+              </span>
+              <span className="font-semibold">
+                {userBalances.longBalance ? parseFloat(formatEther(userBalances.longBalance)).toFixed(4) : '0'}
+              </span>
             </div>
             <div className="flex justify-between">
-              <span>Your S balance:</span>
-              <span className="font-semibold">{parseFloat(state.shortBalance).toFixed(4)}</span>
+              <span className="flex items-center gap-1">
+                Your S balance:
+                {marketState.shortTokenAddress && (
+                  <>
+                    <a 
+                      href={getEtherscanUrl(marketState.shortTokenAddress)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-gray-400 hover:text-blue-600"
+                      title="View on Etherscan"
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </a>
+                    <button
+                      onClick={() => addTokenToWallet(marketState.shortTokenAddress!, 'USGDP.Q3.2025.S', 'USGDP.Q3.2025 Short')}
+                      className="text-gray-400 hover:text-red-600 ml-1"
+                      title="Add to Wallet"
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                      </svg>
+                    </button>
+                  </>
+                )}
+              </span>
+              <span className="font-semibold">
+                {userBalances.shortBalance ? parseFloat(formatEther(userBalances.shortBalance)).toFixed(4) : '0'}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span>Your USDC balance:</span>
+              <span className="font-semibold">
+                {userBalances.usdcBalance ? formatUnits(userBalances.usdcBalance, 6) : '0'}
+              </span>
             </div>
             <div className="flex justify-between">
               <span>Estimated payout:</span>
               <span className="font-semibold">{estimatedPayout()} USDC</span>
             </div>
-            {state.phase === Phase.Settled && (
-              <>
-                <div className="border-t pt-2 mt-2">
-                  <div className="flex justify-between">
-                    <span>Long redeem rate:</span>
-                    <span className="font-semibold">
-                      {state.longRedeemDenominator !== '0' 
-                        ? (parseFloat(state.longRedeemNumerator) / parseFloat(state.longRedeemDenominator)).toFixed(6)
-                        : '0'} USDC/L
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Short redeem rate:</span>
-                    <span className="font-semibold">
-                      {state.shortRedeemDenominator !== '0'
-                        ? (parseFloat(state.shortRedeemNumerator) / parseFloat(state.shortRedeemDenominator)).toFixed(6)
-                        : '0'} USDC/S
-                    </span>
-                  </div>
-                </div>
-              </>
-            )}
           </div>
         </div>
 
         {/* Mint Panel */}
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <h2 className="text-lg font-bold mb-4">Mint</h2>
-          {state.phase === Phase.Open ? (
+          {marketState.phase === Phase.Open ? (
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-2">Side</label>
@@ -489,7 +474,7 @@ export default function Home() {
         {/* Pair Redeem Panel */}
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <h2 className="text-lg font-bold mb-4">Pair Redeem</h2>
-          {state.phase === Phase.Open ? (
+          {marketState.phase === Phase.Open ? (
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-2">Token Amount</label>
@@ -524,67 +509,6 @@ export default function Home() {
           )}
         </div>
 
-        {/* Redeem Panel */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <h2 className="text-lg font-bold mb-4">Redeem</h2>
-          {state.phase === Phase.Settled ? (
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-2">Side</label>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setRedeemSide('long')}
-                    className={`px-4 py-2 rounded text-sm ${
-                      redeemSide === 'long' 
-                        ? 'bg-green-100 text-green-800 border border-green-300' 
-                        : 'bg-gray-100 text-gray-700 border border-gray-300'
-                    }`}
-                  >
-                    Long
-                  </button>
-                  <button
-                    onClick={() => setRedeemSide('short')}
-                    className={`px-4 py-2 rounded text-sm ${
-                      redeemSide === 'short' 
-                        ? 'bg-red-100 text-red-800 border border-red-300' 
-                        : 'bg-gray-100 text-gray-700 border border-gray-300'
-                    }`}
-                  >
-                    Short
-                  </button>
-                </div>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium mb-2">Token Amount</label>
-                <input
-                  type="number"
-                  value={redeemAmount}
-                  onChange={(e) => setRedeemAmount(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
-                  placeholder="0.0"
-                />
-              </div>
-              
-              <div className="text-xs text-gray-600">
-                USDC out: {calculateRedeemOut()}
-              </div>
-              
-              <button
-                onClick={handleRedeem}
-                disabled={loading || !address || !redeemAmount}
-                className="w-full bg-purple-600 text-white py-2 px-4 rounded text-sm disabled:bg-gray-400"
-              >
-                {loading ? 'Processing...' : 'Redeem'}
-              </button>
-            </div>
-          ) : (
-            <div className="text-sm text-gray-600">
-              Single-sided redemption is only available after settlement
-            </div>
-          )}
-        </div>
-
         {/* Oracle Panel */}
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <h2 className="text-lg font-bold mb-4">Oracle</h2>
@@ -596,8 +520,8 @@ export default function Home() {
             <div className="flex justify-between">
               <span>GDP Change (g):</span>
               <span className="font-semibold">
-                {state.gPpm !== '0' 
-                  ? `${(parseInt(state.gPpm) / 10000).toFixed(2)}%`
+                {oracleState.gPpm && oracleState.gPpm !== 0n
+                  ? `${(Number(oracleState.gPpm) / 10000).toFixed(2)}%`
                   : '—'
                 }
               </span>
@@ -605,7 +529,7 @@ export default function Home() {
             <div className="flex justify-between">
               <span>Status:</span>
               <span className="font-semibold">
-                {state.oracleFinalized ? 'Finalized' : 'Not finalized'}
+                {oracleState.finalized ? 'Finalized' : 'Not finalized'}
               </span>
             </div>
           </div>
@@ -619,7 +543,7 @@ export default function Home() {
             <div>S/USDC: —</div>
             <div className="pt-2">
               <a 
-                href={getUniswapUrl(state.longTokenAddress)} 
+                href={getUniswapUrl(marketState.longTokenAddress)} 
                 className="text-blue-600 hover:underline text-xs"
                 target="_blank"
                 rel="noopener noreferrer"
@@ -629,7 +553,7 @@ export default function Home() {
             </div>
             <div>
               <a 
-                href={getUniswapUrl(state.shortTokenAddress)} 
+                href={getUniswapUrl(marketState.shortTokenAddress)} 
                 className="text-blue-600 hover:underline text-xs"
                 target="_blank"
                 rel="noopener noreferrer"
@@ -637,12 +561,12 @@ export default function Home() {
                 Trade S on Uniswap →
               </a>
             </div>
-            {(!chain || chain.id === 31337) && (
+            {(!chainId || chainId === 31337) && (
               <div className="text-xs text-gray-500 pt-2">
                 Uniswap v3 pools not available on local network
               </div>
             )}
-            {chain && chain.id !== 31337 && (
+            {chainId && chainId !== 31337 && (
               <div className="text-xs text-gray-500 pt-2">
                 Uniswap v3 pools may not be deployed yet
               </div>
@@ -651,7 +575,7 @@ export default function Home() {
         </div>
 
         {/* Simulator Panel */}
-        {state.phase !== Phase.Settled && (
+        {marketState.phase !== Phase.Settled && (
           <div className="bg-white rounded-lg border border-gray-200 p-6 lg:col-span-2">
             <h2 className="text-lg font-bold mb-4">Settlement Simulator</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

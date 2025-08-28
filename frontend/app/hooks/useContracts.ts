@@ -1,68 +1,311 @@
-import { ethers } from 'ethers';
-import { useMemo } from 'react';
-import { usePublicClient, useWalletClient } from 'wagmi';
-import { CONTRACTS, ADDRESSES } from '../../contracts.js';
+import { useReadContract, useWriteContract, useAccount, useChainId } from 'wagmi';
+import { SEPOLIA_DEPLOYMENTS } from '../../contracts/sepolia.js';
+import { MAINNET_CONTRACTS } from '../../contracts/mainnet.js';
+import * as LocalContracts from '../../contracts/local.js';
 
-// Convert wagmi client to ethers provider/signer
-function publicClientToProvider(publicClient: any) {
-  const { chain, transport } = publicClient;
-  const network = {
-    chainId: chain.id,
-    name: chain.name,
-    // Only set ENS address for mainnet and known testnets
-    ensAddress: chain.id === 1 ? chain.contracts?.ensRegistry?.address : undefined,
-  };
-  
-  if (transport.type === 'http') {
-    return new ethers.providers.JsonRpcProvider(transport.url, network);
+// Local anvil deployment structure
+const LOCAL_CONTRACTS = {
+  chainId: 31337,
+  name: "Local",
+  rpcUrl: "http://localhost:8546",
+  contracts: {
+    GDPMarket: {
+      address: LocalContracts.GDPMarket.address,
+      abi: LocalContracts.GDPMarket.abi,
+    },
+    MockUSDC: {
+      address: LocalContracts.MockUSDC.address,
+      abi: LocalContracts.MockUSDC.abi,
+    },
+    USGDPOracle: {
+      address: LocalContracts.MockGDPOracle.address,
+      abi: LocalContracts.MockGDPOracle.abi,
+    },
+    LongToken: {
+      address: LocalContracts.LongToken.address,
+      abi: LocalContracts.LongToken.abi,
+    },
+    ShortToken: {
+      address: LocalContracts.ShortToken.address,
+      abi: LocalContracts.ShortToken.abi,
+    },
+  },
+};
+
+// Get deployments based on chain ID
+export function getDeploymentForChain(chainId: number) {
+  if (chainId === 1) {
+    return MAINNET_CONTRACTS;
   }
-  
-  return new ethers.providers.Web3Provider(transport, network);
+  if (chainId === 11155111) {
+    return SEPOLIA_DEPLOYMENTS;
+  }
+  if (chainId === 31337) {
+    return LOCAL_CONTRACTS;
+  }
+  // Default to Sepolia
+  return SEPOLIA_DEPLOYMENTS;
 }
 
-function walletClientToSigner(walletClient: any) {
-  const { account, chain, transport } = walletClient;
-  const network = {
-    chainId: chain.id,
-    name: chain.name,
-    // Only set ENS address for mainnet and known testnets
-    ensAddress: chain.id === 1 ? chain.contracts?.ensRegistry?.address : undefined,
+export function useContractAddresses() {
+  const chainId = useChainId();
+  const deployment = getDeploymentForChain(chainId);
+  
+  return {
+    gdpMarket: deployment.contracts.GDPMarket.address as `0x${string}`,
+    mockUSDC: deployment.contracts.MockUSDC?.address as `0x${string}` || deployment.contracts.USDC?.address as `0x${string}`,
+    oracle: deployment.contracts.USGDPOracle.address as `0x${string}`,
+    longToken: deployment.contracts.LongToken.address as `0x${string}`,
+    shortToken: deployment.contracts.ShortToken.address as `0x${string}`,
+  };
+}
+
+export function useContractAbis() {
+  const chainId = useChainId();
+  const deployment = getDeploymentForChain(chainId);
+  
+  return {
+    gdpMarket: deployment.contracts.GDPMarket.abi,
+    mockUSDC: deployment.contracts.MockUSDC?.abi || deployment.contracts.USDC?.abi,
+    oracle: deployment.contracts.USGDPOracle.abi,
+    longToken: deployment.contracts.LongToken.abi,
+    shortToken: deployment.contracts.ShortToken.abi,
+  };
+}
+
+// Hook for reading contract data
+export function useMarketState() {
+  const addresses = useContractAddresses();
+  const abis = useContractAbis();
+  
+  const { data: phase } = useReadContract({
+    address: addresses.gdpMarket,
+    abi: abis.gdpMarket,
+    functionName: 'getCurrentPhase',
+  });
+  
+  const { data: closeAt } = useReadContract({
+    address: addresses.gdpMarket,
+    abi: abis.gdpMarket,
+    functionName: 'closeAt',
+  });
+  
+  const { data: longTokenAddress } = useReadContract({
+    address: addresses.gdpMarket,
+    abi: abis.gdpMarket,
+    functionName: 'longToken',
+  });
+  
+  const { data: shortTokenAddress } = useReadContract({
+    address: addresses.gdpMarket,
+    abi: abis.gdpMarket,
+    functionName: 'shortToken',
+  });
+  
+  const { data: mintFeeBps } = useReadContract({
+    address: addresses.gdpMarket,
+    abi: abis.gdpMarket,
+    functionName: 'mintFeeBps',
+  });
+  
+  const { data: pairRedeemFeeBps } = useReadContract({
+    address: addresses.gdpMarket,
+    abi: abis.gdpMarket,
+    functionName: 'pairRedeemFeeBps',
+  });
+  
+  const { data: vaultBalance } = useReadContract({
+    address: addresses.mockUSDC,
+    abi: abis.mockUSDC,
+    functionName: 'balanceOf',
+    args: [addresses.gdpMarket],
+  });
+  
+  const { data: gPpm } = useReadContract({
+    address: addresses.gdpMarket,
+    abi: abis.gdpMarket,
+    functionName: 'gPpm',
+  });
+  
+  const { data: longPot } = useReadContract({
+    address: addresses.gdpMarket,
+    abi: abis.gdpMarket,
+    functionName: 'longPot',
+  });
+  
+  const { data: shortPot } = useReadContract({
+    address: addresses.gdpMarket,
+    abi: abis.gdpMarket,
+    functionName: 'shortPot',
+  });
+  
+  const { data: longRedeemNumerator } = useReadContract({
+    address: addresses.gdpMarket,
+    abi: abis.gdpMarket,
+    functionName: 'longRedeemNumerator',
+  });
+  
+  const { data: longRedeemDenominator } = useReadContract({
+    address: addresses.gdpMarket,
+    abi: abis.gdpMarket,
+    functionName: 'longRedeemDenominator',
+  });
+  
+  const { data: shortRedeemNumerator } = useReadContract({
+    address: addresses.gdpMarket,
+    abi: abis.gdpMarket,
+    functionName: 'shortRedeemNumerator',
+  });
+  
+  const { data: shortRedeemDenominator } = useReadContract({
+    address: addresses.gdpMarket,
+    abi: abis.gdpMarket,
+    functionName: 'shortRedeemDenominator',
+  });
+  
+  return {
+    phase: phase as number | undefined,
+    closeAt: closeAt as bigint | undefined,
+    longTokenAddress: longTokenAddress as `0x${string}` | undefined,
+    shortTokenAddress: shortTokenAddress as `0x${string}` | undefined,
+    mintFeeBps: mintFeeBps as bigint | undefined,
+    pairRedeemFeeBps: pairRedeemFeeBps as bigint | undefined,
+    vaultBalance: vaultBalance as bigint | undefined,
+    gPpm: gPpm as bigint | undefined,
+    longPot: longPot as bigint | undefined,
+    shortPot: shortPot as bigint | undefined,
+    longRedeemNumerator: longRedeemNumerator as bigint | undefined,
+    longRedeemDenominator: longRedeemDenominator as bigint | undefined,
+    shortRedeemNumerator: shortRedeemNumerator as bigint | undefined,
+    shortRedeemDenominator: shortRedeemDenominator as bigint | undefined,
+  };
+}
+
+// Hook for user balances
+export function useUserBalances() {
+  const { address } = useAccount();
+  const addresses = useContractAddresses();
+  const abis = useContractAbis();
+  
+  const { data: usdcBalance } = useReadContract({
+    address: addresses.mockUSDC,
+    abi: abis.mockUSDC,
+    functionName: 'balanceOf',
+    args: address ? [address] : undefined,
+  });
+  
+  const { data: longBalance } = useReadContract({
+    address: addresses.longToken,
+    abi: abis.longToken,
+    functionName: 'balanceOf',
+    args: address ? [address] : undefined,
+  });
+  
+  const { data: shortBalance } = useReadContract({
+    address: addresses.shortToken,
+    abi: abis.shortToken,
+    functionName: 'balanceOf',
+    args: address ? [address] : undefined,
+  });
+  
+  return {
+    usdcBalance: usdcBalance as bigint | undefined,
+    longBalance: longBalance as bigint | undefined,
+    shortBalance: shortBalance as bigint | undefined,
+  };
+}
+
+// Hook for oracle state
+export function useOracleState() {
+  const addresses = useContractAddresses();
+  const abis = useContractAbis();
+  
+  const { data: oracleData } = useReadContract({
+    address: addresses.oracle,
+    abi: abis.oracle,
+    functionName: 'readDelta',
+  });
+  
+  return {
+    gPpm: oracleData?.[0] as bigint | undefined,
+    finalized: oracleData?.[1] as boolean | undefined,
+  };
+}
+
+// Hook for contract writes
+export function useContractWrites() {
+  const { writeContract } = useWriteContract();
+  const addresses = useContractAddresses();
+  const abis = useContractAbis();
+  
+  const approveUSDC = (amount: bigint) => {
+    writeContract({
+      address: addresses.mockUSDC,
+      abi: abis.mockUSDC,
+      functionName: 'approve',
+      args: [addresses.gdpMarket, amount],
+    });
   };
   
-  const provider = new ethers.providers.Web3Provider(transport, network);
-  return provider.getSigner(account.address);
+  const mint = (isLong: boolean, amount: bigint) => {
+    writeContract({
+      address: addresses.gdpMarket,
+      abi: abis.gdpMarket,
+      functionName: 'mint',
+      args: [isLong, amount],
+    });
+  };
+  
+  const pairRedeem = (amount: bigint) => {
+    writeContract({
+      address: addresses.gdpMarket,
+      abi: abis.gdpMarket,
+      functionName: 'pairRedeem',
+      args: [amount],
+    });
+  };
+  
+  const redeemLong = (amount: bigint) => {
+    writeContract({
+      address: addresses.gdpMarket,
+      abi: abis.gdpMarket,
+      functionName: 'redeemLong',
+      args: [amount],
+    });
+  };
+  
+  const redeemShort = (amount: bigint) => {
+    writeContract({
+      address: addresses.gdpMarket,
+      abi: abis.gdpMarket,
+      functionName: 'redeemShort',
+      args: [amount],
+    });
+  };
+  
+  return {
+    approveUSDC,
+    mint,
+    pairRedeem,
+    redeemLong,
+    redeemShort,
+  };
 }
 
+// Legacy compatibility exports (keeping for now to minimize page.tsx changes)
 export function useContracts() {
-  const publicClient = usePublicClient();
-  const { data: walletClient } = useWalletClient();
-
-  return useMemo(() => {
-    if (!publicClient) return null;
-    
-    const provider = publicClientToProvider(publicClient);
-    const signerOrProvider = walletClient ? walletClientToSigner(walletClient) : provider;
-
-    return {
-      gdpMarket: new ethers.Contract(ADDRESSES.GDPMarket, CONTRACTS.GDPMarket.abi, signerOrProvider),
-      mockUSDC: new ethers.Contract(ADDRESSES.MockUSDC, CONTRACTS.MockUSDC.abi, signerOrProvider),
-      mockGDPOracle: new ethers.Contract(ADDRESSES.MockGDPOracle, CONTRACTS.MockGDPOracle.abi, signerOrProvider),
-    };
-  }, [publicClient, walletClient]);
+  const contractWrites = useContractWrites();
+  return contractWrites;
 }
 
 export function useReadOnlyContracts() {
-  const publicClient = usePublicClient();
-
-  return useMemo(() => {
-    if (!publicClient) return null;
-    
-    const provider = publicClientToProvider(publicClient);
-
-    return {
-      gdpMarket: new ethers.Contract(ADDRESSES.GDPMarket, CONTRACTS.GDPMarket.abi, provider),
-      mockUSDC: new ethers.Contract(ADDRESSES.MockUSDC, CONTRACTS.MockUSDC.abi, provider),
-      mockGDPOracle: new ethers.Contract(ADDRESSES.MockGDPOracle, CONTRACTS.MockGDPOracle.abi, provider),
-    };
-  }, [publicClient]);
+  const marketState = useMarketState();
+  const userBalances = useUserBalances();
+  const oracleState = useOracleState();
+  
+  return {
+    marketState,
+    userBalances,
+    oracleState,
+  };
 }

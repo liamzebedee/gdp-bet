@@ -9,4 +9,16 @@ Example: vault 200 USDC. GDP +2% → longs get 120, shorts 80. GDP −1% → lon
 
 ## Status
 
-WIP TBA
+**Live:** https://gdp-bet.vercel.app/
+
+### ✅ Completed (v1)
+- **Smart Contracts:** Fully implemented GDP prediction market with oracle-based settlement
+- **Frontend:** Wagmi v2 + RainbowKit dApp with wallet connection and token interactions
+- **Local Development:** Anvil deployment with MockUSDC for testing
+- **Sepolia Testnet:** Deployed and functional on Ethereum testnet
+
+### 🚧 In Progress
+- **Mainnet Deployment:** Production deployment to Ethereum mainnet
+- **Security Audit:** Professional smart contract security review
+- **Uniswap Pools:** USDC/Long and USDC/Short liquidity pools for trading
+
